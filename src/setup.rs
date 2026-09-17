@@ -2,8 +2,6 @@ pub mod configpicker;
 mod fontpicker;
 pub mod notification;
 
-use std::time::Duration;
-
 use cosmic_text::{Color, FontSystem, SwashCache};
 use image::Rgba;
 use ratatui_image::{
@@ -68,12 +66,13 @@ pub fn setup_graphics(
     } else {
         print!("Detecting supported graphics protocols...");
         let picker = Picker::from_query_stdio_with_options(QueryStdioOptions {
-            timeout: config
+            timeout_ms: config
                 .stdio_query_timeout_ms
-                .map(Duration::from_millis)
-                .unwrap_or_else(|| QueryStdioOptions::default().timeout),
+                .unwrap_or_else(|| QueryStdioOptions::default().timeout_ms),
             text_sizing_protocol: !config.ignore_text_sizing_protocol.unwrap_or(false),
             terminal_background_color_osc: true,
+            #[cfg(not(windows))]
+            kitty_shared_memory_object: QueryStdioOptions::probe_kitty_smo(),
             ..Default::default()
         })?;
         println!(" {:?}.", picker.protocol_type());

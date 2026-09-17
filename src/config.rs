@@ -47,7 +47,7 @@ impl From<UserConfig> for Config {
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct UserConfig {
     pub font_family: Option<String>,
-    pub stdio_query_timeout_ms: Option<u64>,
+    pub stdio_query_timeout_ms: Option<i32>,
     pub ignore_text_sizing_protocol: Option<bool>,
     pub padding: Option<Padding>,
     pub max_image_height: Option<u16>,
