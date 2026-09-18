@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [3.0.8] - 2026-09-18
+
 ### Fixed
 
 - Fix cell widths (especially for URLs), 
