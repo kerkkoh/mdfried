@@ -3698,7 +3698,7 @@ dependencies = [
 
 [[package]]
 name = "mdfried"
-version = "0.22.5"
+version = "0.22.6"
 dependencies = [
  "ansi-to-tui",
  "arborium",
