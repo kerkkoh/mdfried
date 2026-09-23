@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Added
+- Render Mermaid code blocks as terminal text with a configurable command using `mermaid = { text = "..." }`. Supports renderers such as termaid, merman-cli, mermaid-ascii, and bm.
+
+### Fixed
+- Wide text-rendered charts can be panned with left/right arrow keys or `h`/`l`, with visible columns shown in the status bar.
+- Fall back to source code when an external or built-in Mermaid renderer fails.
+
 ## [0.22.6] - 2026-09-18
 
 ## [0.22.5] - 2026-08-07

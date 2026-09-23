@@ -48,7 +48,21 @@ pub fn view(model: &Model, buf: &mut Buffer) -> Option<Position> {
             continue;
         }
         match &section.content {
-            SectionContent::Lines(lines) | SectionContent::Code(_, lines) => {
+            SectionContent::Lines(lines)
+            | SectionContent::Code(_, lines)
+            | SectionContent::Diagram(lines) => {
+                let horizontal_scroll = if matches!(&section.content, SectionContent::Diagram(_)) {
+                    let width = lines
+                        .iter()
+                        .map(|(line, _)| line.width())
+                        .max()
+                        .unwrap_or(0);
+                    usize::from(model.diagram_scroll)
+                        .min(width.saturating_sub(usize::from(inner_area.width)))
+                        as u16
+                } else {
+                    0
+                };
                 section_lines(
                     lines,
                     buf,
@@ -57,6 +71,7 @@ pub fn view(model: &Model, buf: &mut Buffer) -> Option<Position> {
                     model,
                     &selected_url,
                     section.id,
+                    horizontal_scroll,
                 );
             }
             SectionContent::Image(_markdown_link, sliced_proto, _size, _max_size) => {
@@ -153,7 +168,26 @@ pub fn view(model: &Model, buf: &mut Buffer) -> Option<Position> {
     } else {
         match &model.input_queue {
             InputQueue::None => match &model.cursor {
-                Cursor::None => {}
+                Cursor::None => {
+                    let width = model.visible_diagram_width();
+                    if width > inner_area.width {
+                        let offset = model.diagram_scroll.min(width - inner_area.width);
+                        let hint = format!(
+                            "←/→ pan chart  {}–{}/{width}",
+                            offset + 1,
+                            offset + inner_area.width
+                        );
+                        Paragraph::new(hint).fg(Color::DarkGray).render(
+                            Rect::new(
+                                inner_area.x,
+                                status_line_y,
+                                inner_area.width.saturating_sub(8),
+                                1,
+                            ),
+                            buf,
+                        );
+                    }
+                }
                 Cursor::Links(_) => {
                     let (fg, bg) = (Color::Indexed(15), Color::Indexed(32));
                     let line = if model.config.theme.hide_urls()
@@ -228,6 +262,7 @@ pub fn view(model: &Model, buf: &mut Buffer) -> Option<Position> {
     cursor_position
 }
 
+#[expect(clippy::too_many_arguments)]
 fn section_lines(
     lines: &[(Line<'static>, Vec<LineExtra>)],
     buf: &mut Buffer,
@@ -236,6 +271,7 @@ fn section_lines(
     model: &Model,
     selected_url: &Option<SourceContent>,
     section_id: usize,
+    horizontal_scroll: u16,
 ) {
     // This should come from Theme.
     let highlight_style = Style::default()
@@ -257,7 +293,7 @@ fn section_lines(
             break;
         }
 
-        let p = Paragraph::new(line.clone());
+        let p = Paragraph::new(line.clone()).scroll((0, horizontal_scroll));
         render_lines(p, LINE_HEIGHT, line_y, inner_area, buf);
 
         for extra in extras.iter() {
@@ -309,10 +345,17 @@ fn section_lines(
         if let Cursor::Search(_, pointer) = &model.cursor {
             for (i, extra) in extras.iter().enumerate() {
                 if let LineExtra::SearchMatch(start, end, text) = extra {
-                    let x = inner_area.x + (*start as u16);
-                    let width = *end as u16 - *start as u16;
+                    let offset = usize::from(horizontal_scroll);
+                    let visible_start = (*start).max(offset);
+                    let visible_end = (*end).min(offset + usize::from(inner_area.width));
+                    if visible_start >= visible_end {
+                        continue;
+                    }
+                    let x = inner_area.x + (visible_start - offset) as u16;
+                    let width = (visible_end - visible_start) as u16;
                     let area = Rect::new(x, line_y, width, 1);
-                    let mut search_highlight_overlay = Paragraph::new(text.clone());
+                    let mut search_highlight_overlay =
+                        Paragraph::new(text.clone()).scroll((0, (visible_start - *start) as u16));
                     search_highlight_overlay = if let Some(CursorPointer { id, index }) = pointer
                         && section_id == *id
                         && flat_index + i == *index

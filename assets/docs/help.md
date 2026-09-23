@@ -10,6 +10,8 @@ Key | Alt Key(s) | Description
 `r` |            | Reload the file (unless piped stdin)
 `j` | `↑`        | Scroll down one line
 `k` | `↓`        | Scroll up one line
+`h` | `←`        | Pan wide diagrams left four columns
+`l` | `→`        | Pan wide diagrams right four columns
 `d` | `Ctrl-d`   | Scroll down half page
 `u` | `Ctrl-u`   | Scroll up half page
 `f` | `PageDown`, `Space` | Scroll down a page
@@ -85,4 +87,3 @@ mdfried [OPTIONS] [SOURCE]
 ## Configuration
 
 Type `:help configuration` to open [configuration.md](./help_configuration.md).
-

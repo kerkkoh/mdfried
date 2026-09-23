@@ -35,7 +35,8 @@ https://github.com/user-attachments/assets/924d29a9-053c-44b0-8c09-39dac8c90329
     For example, `url_transform_command = "readable | html2text"` first transforms the webpage into something like FireFox's "reader mode", and then converts to markdown.
 * Syntax highlighting in codeblocks with [arborium](https://arborium.bearcove.eu)
 * Mermaid diagram rendering 
-  Via internal renderer (fast) or external mermaid-cli command (accurate).
+  Via the internal image renderer, an external image command, or a configurable terminal-text command.
+  See [Mermaid configuration](assets/docs/help_configuration.md) for setup.
 * Experimental PDF support
   If enabled with the `pdf` feature, PDF files can be opened.
   Only recommended for terminals that use the kitty protocol.

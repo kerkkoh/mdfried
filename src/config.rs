@@ -66,7 +66,39 @@ pub enum MermaidConfig {
     Disabled,
     #[cfg(feature = "mermaid")]
     Builtin,
+    Text {
+        #[serde(alias = "termaid")]
+        text: String,
+    },
     Command(String),
+}
+
+#[cfg(test)]
+mod mermaid_tests {
+    use super::*;
+
+    #[test]
+    fn text_renderer_config_loads_from_toml() -> Result<(), Box<dyn std::error::Error>> {
+        for (key, command) in [
+            ("text", "merman-cli render - --format unicode --output -"),
+            ("termaid", "termaid --ascii"),
+        ] {
+            let path = std::env::temp_dir().join(format!(
+                "mdfried-text-renderer-config-{}.toml",
+                std::process::id()
+            ));
+            fs::write(&path, format!("mermaid = {{ {key} = {command:?} }}\n"))?;
+            let config: UserConfig = confy::load_path(&path)?;
+            fs::remove_file(path)?;
+            assert_eq!(
+                config.mermaid,
+                Some(MermaidConfig::Text {
+                    text: command.into()
+                })
+            );
+        }
+        Ok(())
+    }
 }
 
 #[expect(clippy::derivable_impls)]
@@ -118,6 +150,10 @@ const STYLED_MAPPER: mdfrier::StyledMapper = mdfrier::StyledMapper;
 
 // Mapper implementation provides content/decorator symbols
 impl Mapper for Theme {
+    fn code_block_as_source(&self, language: &str) -> bool {
+        language == "mermaid"
+    }
+
     fn blockquote_bar(&self) -> &str {
         self.blockquote_bar
             .as_deref()

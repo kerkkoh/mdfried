@@ -218,7 +218,7 @@ impl Document {
         let mut y = 0;
         for section in &self.sections {
             match &section.content {
-                SectionContent::Lines(lines) => {
+                SectionContent::Lines(lines) | SectionContent::Diagram(lines) => {
                     if section.id != *id {
                         y += section.height as i16;
                         continue;
@@ -261,7 +261,8 @@ impl Document {
         scroll: u16,
     ) -> Option<CursorPointer> {
         let locate = move |section: &Section| -> Option<(u16, CursorPointer)> {
-            if let SectionContent::Lines(lines) = &section.content {
+            if let SectionContent::Lines(lines) | SectionContent::Diagram(lines) = &section.content
+            {
                 let mut flat_index = 0;
                 for (line_y, (_, extras)) in lines.iter().enumerate() {
                     if let Some(i) = extras.iter().position(|extra| target.matches(extra)) {
@@ -355,7 +356,9 @@ impl Document {
     > {
         match mode {
             FindMode::Next => {
-                if let SectionContent::Lines(lines) = &section.content {
+                if let SectionContent::Lines(lines) | SectionContent::Diagram(lines) =
+                    &section.content
+                {
                     let id = section.id;
                     let mut flat_index = 0;
                     let flattened: Vec<_> = lines
@@ -377,7 +380,9 @@ impl Document {
                 }
             }
             FindMode::Prev => {
-                if let SectionContent::Lines(lines) = &section.content {
+                if let SectionContent::Lines(lines) | SectionContent::Diagram(lines) =
+                    &section.content
+                {
                     let id = section.id;
                     let mut flat_index = 0;
                     let mut flattened: Vec<_> = lines
@@ -507,12 +512,13 @@ pub enum SectionContent {
     Header(String, u8, Option<Protocol>),
     HeaderPlaceholder(String, u8, Vec<(Line<'static>, Vec<LineExtra>)>),
     Lines(Vec<(Line<'static>, Vec<LineExtra>)>),
+    Diagram(Vec<(Line<'static>, Vec<LineExtra>)>),
     Code(String, Vec<(Line<'static>, Vec<LineExtra>)>),
 }
 
 impl SectionContent {
     pub fn add_search(&mut self, re: Option<&Regex>) {
-        if let SectionContent::Lines(lines) = self {
+        if let SectionContent::Lines(lines) | SectionContent::Diagram(lines) = self {
             for (line, extras) in lines {
                 let line_string = line.to_string();
                 extras.retain(|extra| !matches!(extra, LineExtra::SearchMatch(_, _, _)));
@@ -545,7 +551,7 @@ impl PartialEq for SectionContent {
             (Self::Image(..), _) | (_, Self::Image(..)) => {
                 panic!("PartialEq not supported for SectionContent::Image")
             }
-            (Self::Lines(l), Self::Lines(r)) => l == r,
+            (Self::Lines(l), Self::Lines(r)) | (Self::Diagram(l), Self::Diagram(r)) => l == r,
             (Self::Header(l0, l1, l2), Self::Header(r0, r1, r2)) => {
                 l0 == r0 && l1 == r1 && l2.is_some() == r2.is_some()
             }
@@ -561,7 +567,7 @@ impl Debug for SectionContent {
             Self::ImagePlaceholder(url, _) => f
                 .debug_tuple(format!("ImagePlaceholder({url:?})").as_str())
                 .finish(),
-            Self::Lines(lines) => {
+            Self::Lines(lines) | Self::Diagram(lines) => {
                 let mut tuple = &mut f.debug_tuple("Line");
                 for (line, extra) in lines {
                     tuple = tuple.field(line);
@@ -599,6 +605,7 @@ impl Display for SectionContent {
                 write!(f, "ImagePlaceholder({url:?})")
             }
             Self::Lines(lines) => write!(f, "Line({lines:?})"),
+            Self::Diagram(lines) => write!(f, "Diagram({lines:?})"),
             Self::Header(text, tier, _) => write!(f, "Header({text}, {tier})"),
             Self::HeaderPlaceholder(_, _, lines) => write!(f, "HeaderPlaceholder({lines:?})"),
             Self::Code(language, lines) => write!(f, "Code({language}, {lines:?})"),
@@ -618,7 +625,7 @@ impl Display for Section {
         match &self.content {
             SectionContent::Image(_, _, _, _) => write!(f, "<image>"),
             SectionContent::ImagePlaceholder(_, _) => write!(f, "<image-placeholder>"),
-            SectionContent::Lines(lines) => {
+            SectionContent::Lines(lines) | SectionContent::Diagram(lines) => {
                 for (i, (line, _)) in lines.iter().enumerate() {
                     if i > 0 {
                         writeln!(f)?;

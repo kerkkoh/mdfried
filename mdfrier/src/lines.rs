@@ -633,6 +633,18 @@ fn code_block_to_lines<M: Mapper>(
     mapper: &M,
 ) -> Vec<Line> {
     let code_lines: Vec<&str> = code.lines().collect();
+    if mapper.code_block_as_source(&language) {
+        return code_lines
+            .into_iter()
+            .map(|line| Line {
+                spans: vec![Span::new(line.to_owned(), Modifier::Code)],
+                kind: LineKind::CodeBlock {
+                    language: language.clone(),
+                },
+                urls: Vec::new(),
+            })
+            .collect();
+    }
     let num_lines = code_lines.len();
     if num_lines == 0 {
         return vec![];

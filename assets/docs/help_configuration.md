@@ -51,10 +51,39 @@ Transform URLs with a shell command before parsing as markdown. Used when openin
 ```toml
 mermaid = "mmdc -i - -o - -e png"
 ```
-Mermaid option, can be `true`, `false` or omitted to disable, or a custom external mermaid-cli command.
-Renders codeblocks with `mermaid` language as mermaid diagram images.
+Renders code blocks with the `mermaid` language as diagram images using an external command.
+The command reads Mermaid source from stdin and writes an image to stdout.
 
-If `true`, a fast internal renderer is used, but it's not as accurate as using a mermaid-cli command.
+When omitted, the internal image renderer is used in builds with the `mermaid` feature.
+Builds without that feature show the source unless an external renderer is configured.
+
+For terminal text, set a command that reads Mermaid source from stdin and prints UTF-8 text to
+stdout. mdfried preserves ANSI colors and whitespace. Use `{width}` in the command to substitute
+the available document width in columns; no width option is added automatically.
+
+```toml
+# [merman-cli](https://github.com/Latias94/merman), built using merman-ascii
+mermaid = { text = "merman-cli render - --format unicode --output - --ascii-max-width {width} --ascii-overflow fallback" }
+
+# [mermaid-ascii](https://github.com/AlexanderGrooff/mermaid-ascii)
+# mermaid = { text = "mermaid-ascii --max-width {width}" }
+
+# [beautiful-mermaid-cli](https://github.com/okooo5km/beautiful-mermaid-cli),
+# a CLI for [beautiful-mermaid](https://github.com/lukilabs/beautiful-mermaid)
+# mermaid = { text = "bm ascii" }
+
+# [termaid](https://github.com/fasouto/termaid)
+# mermaid = { text = "termaid --width {width}" }
+```
+
+Uncomment one alternative to switch renderer. The `bm ascii` command has no width option. Pan
+wide results with left/right arrow keys or `h`/`l`; the status bar shows the visible columns.
+Surrounding text stays in place. Diagrams scroll with the document and are rendered again when its
+width changes. Text rendering works without image support or the `mermaid` build feature.
+
+The previous `mermaid = { termaid = "..." }` form still loads as a text command, but it no longer
+adds `--width` automatically. If the command fails, returns empty output, or takes longer than 30
+seconds, mdfried keeps the Mermaid source visible and logs the error.
 
 ```toml
 osc8_links = true
@@ -108,4 +137,3 @@ header_color = "#FFFFFF"
 hide_urls = true
 ```
 The theme, including colors, replacement strings, and some markdown options.
-

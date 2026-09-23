@@ -54,6 +54,14 @@ pub fn poll(had_events: bool, model: &mut Model) -> Result<PollResult, Error> {
                     model.scroll_by(2);
                     return Ok(PollResult::HadInput);
                 }
+                MouseEventKind::ScrollLeft => {
+                    model.pan_diagram(-4);
+                    return Ok(PollResult::HadInput);
+                }
+                MouseEventKind::ScrollRight => {
+                    model.pan_diagram(4);
+                    return Ok(PollResult::HadInput);
+                }
                 _ => {}
             },
             _ => {}
@@ -129,6 +137,18 @@ fn match_keycode(key: KeyEvent, model: &mut Model) -> Result<PollResult, Error> 
             return Ok(PollResult::Quit);
         }
         // Movements
+        KeyCode::Char('h') | KeyCode::Left => {
+            let count = model.input_queue.take_count_or_unit_i32();
+            if !model.pan_diagram(-count.saturating_mul(4)) {
+                return Ok(PollResult::None);
+            }
+        }
+        KeyCode::Char('l') | KeyCode::Right => {
+            let count = model.input_queue.take_count_or_unit_i32();
+            if !model.pan_diagram(count.saturating_mul(4)) {
+                return Ok(PollResult::None);
+            }
+        }
         KeyCode::Char('j') | KeyCode::Down => {
             let count = model.input_queue.take_count_or_unit_i32();
             if !model.scroll_by(count) {

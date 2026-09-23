@@ -32,6 +32,7 @@ use crate::{Event, sources::SharedDocumentSource};
 
 pub struct Model {
     pub scroll: u16,
+    pub diagram_scroll: u16,
     pub cursor: Cursor,
     pub input_queue: InputQueue,
     pub screen_size: Size,
@@ -97,6 +98,7 @@ impl Model {
             screen_size,
             config,
             scroll: 0,
+            diagram_scroll: 0,
             input_queue: InputQueue::None,
             cursor: Cursor::default(),
             root_image_proto: None,
@@ -162,6 +164,7 @@ impl Model {
         self.document_source.write(source)?;
         self.cursor = Cursor::None;
         self.scroll = 0;
+        self.diagram_scroll = 0;
         self.input_queue = InputQueue::None;
         self.image_pages.clear();
         self.open(text)
@@ -180,6 +183,7 @@ impl Model {
         self.document = document;
         self.cursor = Cursor::None;
         self.scroll = scroll;
+        self.diagram_scroll = 0;
         self.input_queue = InputQueue::None;
         self.image_pages.clear();
 
@@ -248,6 +252,7 @@ impl Model {
         let mut had_reload = false;
         while let Ok(event) = self.event_rx.try_recv() {
             had_events = true;
+            let is_diagram = matches!(&event, Event::DiagramLoaded(..));
 
             if !matches!(event, Event::Parsed(..) | Event::CodeLoaded(..)) {
                 log::debug!("{event}");
@@ -260,6 +265,7 @@ impl Model {
                 Event::NewDocument(document_id) => {
                     log::info!("NewDocument {document_id}");
                     self.document_id = document_id;
+                    self.diagram_scroll = 0;
                 }
                 Event::ParseDone(document_id, last_section_id, text) => {
                     if !self.document_id.is_same_document(&document_id) {
@@ -345,7 +351,8 @@ impl Model {
                 Event::NewSourceContent(text) => {
                     self.open_new_source(self.document_source.read()?, text)?;
                 }
-                Event::CodeLoaded(document_id, section_id, text) => {
+                Event::CodeLoaded(document_id, section_id, text)
+                | Event::DiagramLoaded(document_id, section_id, text) => {
                     if !self.document_id.is_same_document(&document_id) {
                         log::debug!("stale event, ignoring");
                         continue;
@@ -358,7 +365,11 @@ impl Model {
                     self.document.update(vec![Section {
                         id: section_id,
                         height: lines.len() as u16,
-                        content: SectionContent::Lines(lines),
+                        content: if is_diagram {
+                            SectionContent::Diagram(lines)
+                        } else {
+                            SectionContent::Lines(lines)
+                        },
                     }])
                 }
             }
@@ -384,7 +395,44 @@ impl Model {
         }
     }
 
-    /// Returns false the scroll did not change.
+    /// Maximum width of the diagrams currently on screen, in terminal columns.
+    pub fn visible_diagram_width(&self) -> u16 {
+        let mut y = 0u32;
+        let top = u32::from(self.scroll);
+        let bottom = top + u32::from(self.inner_height());
+        self.sections()
+            .filter_map(|section| {
+                let visible = y < bottom && y + u32::from(section.height) > top;
+                y += u32::from(section.height);
+                if visible && let SectionContent::Diagram(lines) = &section.content {
+                    Some(
+                        lines
+                            .iter()
+                            .map(|(line, _)| line.width())
+                            .max()
+                            .unwrap_or(0)
+                            .min(u16::MAX as usize) as u16,
+                    )
+                } else {
+                    None
+                }
+            })
+            .max()
+            .unwrap_or(0)
+    }
+
+    pub fn pan_diagram(&mut self, columns: i32) -> bool {
+        let width = self.config.padding.calculate_width(self.screen_size.width);
+        let max_scroll = self.visible_diagram_width().saturating_sub(width);
+        let next = u32::from(self.diagram_scroll.min(max_scroll))
+            .saturating_add_signed(columns)
+            .min(u32::from(max_scroll)) as u16;
+        let changed = self.diagram_scroll != next;
+        self.diagram_scroll = next;
+        changed
+    }
+
+    /// Returns false if the scroll did not change.
     pub fn scroll_by(&mut self, lines: i32) -> bool {
         let new_scroll = (self.scroll as u32)
             .saturating_add_signed(lines)
@@ -810,6 +858,7 @@ mod tests {
             screen_size: (80, 20).into(),
             config: UserConfig::default().into(),
             scroll: 0,
+            diagram_scroll: 0,
             input_queue: InputQueue::None,
             cursor: Cursor::default(),
             document: Document::default(),
@@ -822,6 +871,41 @@ mod tests {
             root_image_proto: None,
             image_pages: Vec::new(),
         }
+    }
+
+    #[test]
+    fn diagram_pan_keeps_prose_still_and_clamps_after_resize() {
+        let mut model = test_model();
+        for section in [
+            Section {
+                id: 0,
+                height: 1,
+                content: SectionContent::Lines(vec![(Line::from("Prose stays put"), vec![])]),
+            },
+            Section {
+                id: 1,
+                height: 1,
+                content: SectionContent::Diagram(vec![(
+                    Line::from(format!("Left{}界Right", "─".repeat(120))),
+                    vec![],
+                )]),
+            },
+        ] {
+            model.document.push(section);
+        }
+        let diagram_width = model.visible_diagram_width();
+        assert!(model.pan_diagram(i32::MAX));
+        assert_eq!(model.diagram_scroll, diagram_width - 80);
+        let mut buffer = ratatui::buffer::Buffer::empty(model.screen_size.into());
+        crate::view::view(&model, &mut buffer);
+        assert_eq!(buffer[(0, 0)].symbol(), "P");
+        assert_eq!(buffer[(79, 1)].symbol(), "t");
+        model.screen_size.width = 160;
+        model.config.padding = crate::config::Padding::AlignLeft { width: None };
+        model.pan_diagram(1);
+        assert_eq!(model.diagram_scroll, 0);
+        model.scroll = 2;
+        assert_eq!(model.visible_diagram_width(), 0);
     }
 
     #[track_caller]

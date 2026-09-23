@@ -126,7 +126,7 @@ pub fn worker_thread(
                             let mut post_parse_events = Vec::new();
                             for section in &mut section_iter {
                                 match &section.content {
-                                    SectionContent::Lines(lines) => {
+                                    SectionContent::Lines(lines) | SectionContent::Diagram(lines) => {
                                         for (_, extras) in lines {
                                             for extra in extras {
                                                 if let LineExtra::Link { reference, .. } = extra
@@ -452,34 +452,45 @@ async fn process_post_parse_events(
                     if language == "mermaid" {
                         let result = match mermaid_config {
                             MermaidConfig::Disabled => Ok::<_, Error>(None),
+                            MermaidConfig::Text { text } => {
+                                match mermaid::render_text(&text, &lines, width).await {
+                                    Ok(text) => {
+                                        task_tx.send(Event::DiagramLoaded(
+                                            document_id,
+                                            section_id,
+                                            text,
+                                        ))?;
+                                        return Ok(());
+                                    }
+                                    Err(err) => Err(err),
+                                }
+                            }
                             #[cfg(feature = "mermaid")]
                             MermaidConfig::Builtin => {
                                 if let Some(fontdb) = fontdb {
-                                    Ok(Some(
-                                        mermaid::internal::render(
-                                            &lines,
-                                            width,
-                                            config_max_image_height,
-                                            fontdb,
-                                            picker,
-                                        )
-                                        .await?,
-                                    ))
+                                    mermaid::internal::render(
+                                        &lines,
+                                        width,
+                                        config_max_image_height,
+                                        fontdb,
+                                        picker,
+                                    )
+                                    .await
+                                    .map(Some)
                                 } else {
                                     log::error!("mermaid: no fontdb available");
-                                    Err(Error::Mermaid("your message here".into()))
+                                    Err(Error::NoFont)
                                 }
                             }
-                            MermaidConfig::Command(cmd) => Ok(Some(
-                                mermaid::render_with_cmd(
-                                    &cmd,
-                                    &lines,
-                                    width,
-                                    config_max_image_height,
-                                    picker,
-                                )
-                                .await?,
-                            )),
+                            MermaidConfig::Command(cmd) => mermaid::render_with_cmd(
+                                &cmd,
+                                &lines,
+                                width,
+                                config_max_image_height,
+                                picker,
+                            )
+                            .await
+                            .map(Some),
                         };
                         match result {
                             Ok(Some((sliced, size, max_size, link))) => {
@@ -492,9 +503,12 @@ async fn process_post_parse_events(
                                 ))?;
                                 return Ok(());
                             }
-                            Ok(None) => {} // Fall through to regular syntax highlighter.
+                            Ok(None) => {}
                             Err(err) => log::error!("{err}"),
                         }
+                        // Arborium does not support Mermaid; keep the original code styling.
+                        task_tx.send(Event::CodeLoaded(document_id, section_id, lines.into()))?;
+                        return Ok(());
                     }
                     let mut hl = highlighter.fork();
                     let text = tokio::task::spawn_blocking(move || hl.highlight(&language, lines))
@@ -550,5 +564,66 @@ impl std::fmt::Debug for ImageCache {
             self.images.len(),
             self.headers.len(),
         )
+    }
+}
+
+#[cfg(test)]
+#[expect(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use crate::config::UserConfig;
+    use ratatui::text::Line;
+    use std::sync::mpsc;
+
+    #[tokio::test]
+    async fn mermaid_text_and_failures_produce_code_events() {
+        for (renderer, expected) in [
+            (
+                MermaidConfig::Text {
+                    text: "sh -c 'cat >/dev/null; printf \"  ┌───┐\\n  │ A │\\n  └───┘\\n\"'"
+                        .into(),
+                },
+                "  ┌───┐",
+            ),
+            (
+                MermaidConfig::Text {
+                    text: "sh -c 'exit 1'".into(),
+                },
+                "graph TD",
+            ),
+            (MermaidConfig::Command("false".into()), "graph TD"),
+        ] {
+            let config = Config::from(UserConfig {
+                mermaid: Some(renderer),
+                ..Default::default()
+            });
+            let (tx, rx) = mpsc::channel();
+            process_post_parse_events(
+                tx,
+                SharedDocumentSource::test(),
+                Arc::new(RwLock::new(Client::builder().no_proxy().build().unwrap())),
+                Arc::new(Picker::halfblocks()),
+                None,
+                None,
+                Arc::new(Highlighter::new(&config.theme)),
+                40,
+                &config,
+                false,
+                DocumentId::default(),
+                vec![SectionEvent::Code(
+                    3,
+                    "mermaid".into(),
+                    vec![Line::from("graph TD"), Line::from("A --> B")],
+                )],
+            )
+            .await
+            .unwrap();
+            let (Event::CodeLoaded(_, 3, text) | Event::DiagramLoaded(_, 3, text)) =
+                rx.try_recv().unwrap()
+            else {
+                panic!("expected a text update for the Mermaid section");
+            };
+            assert_eq!(text.lines[0].to_string(), expected);
+        }
     }
 }

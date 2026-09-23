@@ -299,6 +299,37 @@ mod tests {
     }
 
     #[test]
+    fn mermaid_source_is_not_wrapped_or_decorated() {
+        let source =
+            "flowchart LR\n  AlphaStart --> SecondStage --> ThirdStage --> FourthStage --> Finish";
+        let theme = Theme::default();
+        let markdown = format!("```mermaid\n{source}\n```\n");
+        for width in [20, 80] {
+            let mut frier = MdFrier::new().unwrap();
+            let parsed = frier.parse(width, &markdown, &theme).unwrap();
+            let sections = SectionIterator::new(parsed, &theme).collect::<Vec<_>>();
+            let code = sections
+                .iter()
+                .find_map(|section| {
+                    if let SectionContent::Code(language, lines) = &section.content {
+                        assert_eq!(language, "mermaid");
+                        Some(
+                            lines
+                                .iter()
+                                .map(|(line, _)| line.to_string())
+                                .collect::<Vec<_>>()
+                                .join("\n"),
+                        )
+                    } else {
+                        None
+                    }
+                })
+                .unwrap();
+            assert_eq!(code, source);
+        }
+    }
+
+    #[test]
     fn header_is_own_section() {
         let sections = parse_sections("# Hello\n\nWorld");
         assert_eq!(sections.len(), 2);

@@ -368,6 +368,7 @@ pub enum Event {
         url: String,
     },
     CodeLoaded(DocumentId, usize, ratatui::prelude::Text<'static>),
+    DiagramLoaded(DocumentId, usize, ratatui::prelude::Text<'static>),
     WorkerError(Error),
 }
 
@@ -406,7 +407,8 @@ impl Display for Event {
                         .unwrap_or_default()
                 )
             }
-            Event::CodeLoaded(document_id, section_id, text) => {
+            Event::CodeLoaded(document_id, section_id, text)
+            | Event::DiagramLoaded(document_id, section_id, text) => {
                 write!(
                     f,
                     "Event::CodeLoaded({document_id}, {section_id}, {}...)",
@@ -525,6 +527,103 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(1));
         }
         log::debug!("poll_done completed");
+    }
+
+    #[test]
+    #[ignore = "requires MDFRIED_TEST_TEXT_RENDERER command on PATH"]
+    fn text_renderer_document_render() {
+        let config = UserConfig {
+            mermaid: Some(crate::config::MermaidConfig::Text {
+                text: std::env::var("MDFRIED_TEST_TEXT_RENDERER").unwrap(),
+            }),
+            ..Default::default()
+        }
+        .into();
+        let (mut model, worker, mut terminal) = setup(config);
+        model
+            .open("Before\n\n```mermaid\nflowchart LR\nStart --> Finish\n```\n\nAfter".into())
+            .unwrap();
+        poll_parsed(&mut model);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        while model
+            .sections()
+            .any(|section| matches!(section.content, SectionContent::Code(..)))
+        {
+            model.process_events().unwrap();
+            assert!(
+                std::time::Instant::now() < deadline,
+                "timed out waiting for text renderer"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        terminal
+            .draw(|frame| {
+                view(&model, frame.buffer_mut());
+            })
+            .unwrap();
+        let rendered = terminal.backend().to_string();
+        println!("{rendered}");
+        assert!(rendered.contains("Start") && rendered.contains("Finish"));
+        assert!(rendered.contains("Before") && rendered.contains("After"));
+        assert!(!rendered.contains("flowchart LR"));
+        teardown(model, worker);
+    }
+
+    #[test]
+    #[ignore = "requires MDFRIED_TEST_TEXT_RENDERER command on PATH"]
+    fn text_renderer_wide_document() {
+        for width in [40, 80] {
+            let config = UserConfig {
+                mermaid: Some(crate::config::MermaidConfig::Text {
+                    text: std::env::var("MDFRIED_TEST_TEXT_RENDERER").unwrap(),
+                }),
+                ..Default::default()
+            }
+            .into();
+            let (mut model, worker, mut terminal) = setup(config);
+            model.screen_size.width = width;
+            terminal.backend_mut().resize(width, 20);
+            terminal
+                .resize(ratatui::layout::Rect::new(0, 0, width, 20))
+                .unwrap();
+            model.open("Before\n\n```mermaid\nflowchart LR\nAlphaStart --> SecondStage --> ThirdStage --> FourthStage --> FifthStage --> SixthStage --> SeventhStage --> Finish\n```\n\nAfter".into()).unwrap();
+            poll_parsed(&mut model);
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+            while model
+                .sections()
+                .any(|section| matches!(section.content, SectionContent::Code(..)))
+            {
+                model.process_events().unwrap();
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "timed out waiting for text renderer"
+                );
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            if model.visible_diagram_width() <= width {
+                teardown(model, worker);
+                continue;
+            }
+            for (side, label) in [("left", "AlphaStart"), ("right", "Finish")] {
+                if side == "right" {
+                    assert!(model.pan_diagram(i32::MAX));
+                    assert!(!model.pan_diagram(1));
+                }
+                terminal
+                    .draw(|frame| {
+                        view(&model, frame.buffer_mut());
+                    })
+                    .unwrap();
+                let rendered = terminal.backend().to_string();
+                println!("WIDE_{width}_{side}\n{rendered}END_WIDE");
+                assert!(rendered.contains(label), "{rendered}");
+                assert!(rendered.contains("Before") && rendered.contains("After"));
+                assert!(rendered.contains("pan chart"));
+            }
+            assert!(model.pan_diagram(i32::MIN));
+            assert_eq!(model.diagram_scroll, 0);
+            teardown(model, worker);
+        }
     }
 
     #[test]

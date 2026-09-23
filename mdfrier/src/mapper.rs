@@ -15,6 +15,12 @@ use crate::markdown::BulletStyle;
 /// For ratatui users, the [`crate::ratatui::Theme`] trait in the [`ratatui`] module extends this
 /// with color/style information.
 pub trait Mapper {
+    /// Preserve code verbatim, without wrapping, padding, or container prefixes,
+    /// when the caller will pass it to a renderer instead of displaying the source.
+    fn code_block_as_source(&self, _language: &str) -> bool {
+        false
+    }
+
     // ========================================================================
     // Link decorators
     // ========================================================================
