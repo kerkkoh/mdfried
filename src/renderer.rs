@@ -3,7 +3,7 @@ use std::{
     thread,
 };
 
-use ratatui::{DefaultTerminal, buffer::Buffer, layout::Position};
+use ratatui::{DefaultTerminal, Frame, buffer::Buffer, layout::Position};
 
 use crate::{
     error::Error,
@@ -114,13 +114,7 @@ fn render(
     while let Ok((mut buf, cursor_position)) = buf_in.recv() {
         let mut hide_cursor = false;
         terminal.draw(|frame| {
-            std::mem::swap(frame.buffer_mut(), &mut buf);
-            // frame.set_cursor_position(cursor_position);
-            if let Some(cursor_position) = cursor_position {
-                frame.set_cursor_position(cursor_position);
-            } else {
-                hide_cursor = true;
-            }
+            draw_buffer(frame, &mut buf, cursor_position, &mut hide_cursor);
         })?;
         if hide_cursor {
             terminal.hide_cursor()?;
@@ -133,4 +127,51 @@ fn render(
     }
     // Cursor might be in weird places, prompt or whatever should always show at the bottom now.
     Ok(terminal.set_cursor_position((0, terminal.size()?.height - 1))?)
+}
+
+fn draw_buffer(
+    frame: &mut Frame<'_>,
+    buf: &mut Buffer,
+    cursor_position: Option<Position>,
+    hide_cursor: &mut bool,
+) {
+    let area = frame.area();
+    if *buf.area() == area {
+        std::mem::swap(frame.buffer_mut(), buf);
+    } else {
+        // The terminal can resize after the model renders but before draw() autoresizes.
+        // Copy the overlapping cells instead of swapping a buffer with the wrong width.
+        let overlap = area.intersection(*buf.area());
+        for y in overlap.top()..overlap.bottom() {
+            for x in overlap.left()..overlap.right() {
+                frame.buffer_mut()[(x, y)] = buf[(x, y)].clone();
+            }
+        }
+    }
+    if let Some(position) = cursor_position.filter(|position| area.contains(*position)) {
+        frame.set_cursor_position(position);
+    } else {
+        *hide_cursor = true;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ratatui::{Terminal, backend::TestBackend, buffer::Buffer, layout::Rect};
+
+    use super::draw_buffer;
+
+    #[test]
+    fn resize_between_render_and_draw() {
+        let mut terminal = Terminal::new(TestBackend::new(117, 48)).unwrap();
+        let mut buf = Buffer::empty(Rect::new(0, 0, 117, 48));
+        buf[(0, 0)].set_symbol("X");
+        terminal.backend_mut().resize(116, 48);
+        let mut hide_cursor = false;
+        terminal
+            .draw(|frame| draw_buffer(frame, &mut buf, None, &mut hide_cursor))
+            .unwrap();
+        assert_eq!(terminal.backend().buffer()[(0, 0)].symbol(), "X");
+        assert!(hide_cursor);
+    }
 }
